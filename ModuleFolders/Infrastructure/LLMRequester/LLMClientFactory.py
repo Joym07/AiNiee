@@ -149,10 +149,20 @@ class LLMClientFactory:
         """获取OpenAI客户端"""
         # 展示需要到的配置项
         api_key = config.get("api_key")
-        api_url = config.get("api_url")
+        api_url = config.get("api_url", "")
         tls_switch = config.get("tls_switch", False)
-        key = ("openai", api_url, api_key, tls_switch)
-        return self._get_cached_client(key, lambda: self._create_openai_client(config, api_key, use_curl_cffi=tls_switch))
+        # 完整路径（如 /v1/chat/completions）由 OpenaiRequester 直接 POST，SDK 不使用该 URL
+        # 缓存 key 中使用裁剪后的 base_url，避免完整路径污染缓存
+        redundant_suffixes = ["/chat/completions", "/completions", "/chat"]
+        cache_url = api_url
+        for suffix in redundant_suffixes:
+            if cache_url.endswith(suffix):
+                cache_url = cache_url[:-len(suffix)].rstrip('/')
+                break
+        key = ("openai", cache_url, api_key, tls_switch)
+        # 将裁剪后的 base_url 传入，避免完整路径（含 /chat/completions）污染 SDK 客户端
+        clean_config = {**config, "api_url": cache_url}
+        return self._get_cached_client(key, lambda: self._create_openai_client(clean_config, api_key, use_curl_cffi=tls_switch))
 
     def get_openai_client_local(self, config: Dict[str, Any]) -> OpenAI:
         """获取OpenAI客户端"""

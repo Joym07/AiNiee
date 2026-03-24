@@ -1,4 +1,3 @@
-@@ -1,799 +1,6 @@
 import copy
 import os
 import re
@@ -62,12 +61,12 @@ class SimpleExecutor(ConfigMixin, LogMixin, Base):
             # 基础清洗
             api_url = api_url.strip().rstrip('/')
 
-            # 裁剪冗余后缀
+            # 裁剪冗余后缀（已禁用）
             # redundant_suffixes = ["/chat/completions", "/completions", "/chat"]
             # for suffix in redundant_suffixes:
-            #    if api_url.endswith(suffix):
-            #       api_url = api_url[:-len(suffix)].rstrip('/')
-            #        break
+            #     if api_url.endswith(suffix):
+            #         api_url = api_url[:-len(suffix)].rstrip('/')
+            #         break
 
             # 判断是否为 Anthropic 格式
             is_anthropic = (

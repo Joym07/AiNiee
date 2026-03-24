@@ -143,6 +143,50 @@ class OpenaiRequester(LogMixin, Base):
             if think_switch:
                 base_params["reasoning_effort"] = think_depth
 
+            # 若 api_url 已是完整路径（如 /v1/chat/completions），直接 POST，绕过 SDK 自动拼接
+            api_url = platform_config.get("api_url", "")
+            if api_url.endswith("/chat/completions"):
+                import json as _json
+                from ModuleFolders.Infrastructure.LLMRequester.LLMClientFactory import create_httpx_client, create_curl_client
+                tls_switch = platform_config.get("tls_switch", False)
+                api_key = platform_config.get("api_key", "")
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                }
+                # 将 extra_body 合并到请求体（排除内部控制参数）
+                request_body = {k: v for k, v in base_params.items() if k not in ("extra_body", "timeout")}
+                if extra_body:
+                    request_body.update(extra_body)
+                # 根据 tls_switch 选择 HTTP 客户端，与 SDK 路径保持一致
+                if tls_switch:
+                    http_client = create_curl_client(timeout=request_timeout)
+                else:
+                    http_client = create_httpx_client()
+                with http_client as _client:
+                    _resp = _client.post(api_url, headers=headers, json=request_body, timeout=request_timeout)
+                    _resp.raise_for_status()
+                raw_text = _resp.text
+                response_think, response_content, prompt_tokens, completion_tokens = self._parse_sse_response(raw_text)
+                if not response_content:
+                    # 尝试解析为标准 JSON
+                    try:
+                        _data = _json.loads(raw_text)
+                        _choices = _data.get("choices", [])
+                        if not _choices:
+                            raise ValueError(f"响应中无 choices 字段，原始响应: {raw_text[:500]}")
+                        _msg = _choices[0].get("message", {})
+                        response_content = _msg.get("content", "")
+                        response_think = _msg.get("reasoning_content", "")
+                        _usage = _data.get("usage", {})
+                        prompt_tokens = _usage.get("prompt_tokens", 0)
+                        completion_tokens = _usage.get("completion_tokens", 0)
+                    except (_json.JSONDecodeError, ValueError) as parse_err:
+                        raise ValueError(f"直接POST响应解析失败: {parse_err}，原始响应: {raw_text[:500]}")
+                if not response_content:
+                    raise ValueError(f"直接POST响应内容为空，原始响应: {raw_text[:500]}")
+                return False, response_think, response_content, prompt_tokens, completion_tokens
+
             # 使用with_raw_response获取原始响应，以便处理中转站强制返回流式响应的情况
             raw_response = client.chat.completions.with_raw_response.create(**base_params)
 
